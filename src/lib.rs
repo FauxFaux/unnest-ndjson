@@ -6,9 +6,8 @@ use std::iter::Peekable;
 
 pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, depth: usize) -> io::Result<()> {
     let mut iter = from.bytes().peekable();
-    assert_eq!(depth, 0);
     drop_whitespace(&mut iter)?;
-    scan_one(&mut iter, &mut to)?;
+    handle_one(&mut iter, &mut to, depth, &mut Vec::with_capacity(depth))?;
     Ok(())
 }
 
@@ -28,6 +27,116 @@ fn scan_one<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -> i
         b'[' => scan_array(from, into)?,
         b'"' => parse_string(from, into)?,
         c => scan_primitive(c, from, into)?,
+    }
+    Ok(())
+}
+
+fn handle_one<R: Read, W: Write>(
+    from: &mut Peekable<Bytes<R>>,
+    into: &mut W,
+    depth: usize,
+    path: &mut Vec<Vec<u8>>,
+) -> io::Result<()> {
+    if 0 == depth {
+        write_prefix(into, path)?;
+        scan_one(from, into)?;
+        into.write_all(b"}\n")?;
+        return Ok(());
+    }
+    match from.next().ok_or(io::ErrorKind::UnexpectedEof)?? {
+        b'{' => handle_object(from, into, depth, path)?,
+        b'[' => handle_array(from, into, depth, path)?,
+        b'"' => {
+            write_prefix(into, path)?;
+            parse_string(from, into)?;
+            into.write_all(b"}\n")?;
+        }
+        c => {
+            write_prefix(into, path)?;
+            scan_primitive(c, from, into)?;
+            into.write_all(b"}\n")?;
+        }
+    }
+    Ok(())
+}
+
+fn write_prefix<W: Write>(into: &mut W, path: &mut Vec<Vec<u8>>) -> io::Result<()> {
+    into.write_all(br#"{"key":["#)?;
+    for (pos, path_segment) in path.iter().enumerate() {
+        into.write_all(path_segment)?;
+        if pos != path.len() - 1 {
+            into.write_all(b",")?;
+        }
+    }
+    into.write_all(br#"],"value":"#)?;
+    Ok(())
+}
+
+fn handle_object<R: Read, W: Write>(
+    from: &mut Peekable<Bytes<R>>,
+    into: &mut W,
+    depth: usize,
+    path: &mut Vec<Vec<u8>>,
+) -> io::Result<()> {
+    loop {
+        drop_whitespace(from)?;
+        let s = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        match s {
+            b',' => continue,
+            b'"' => (),
+            b'}' => break,
+            _ => return Err(io::ErrorKind::InvalidData.into()),
+        }
+        {
+            let mut key = Vec::with_capacity(32);
+            parse_string(from, &mut key)?;
+            path.push(key);
+        }
+        drop_whitespace(from)?;
+        let colon = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        if b':' != colon {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        drop_whitespace(from)?;
+        handle_one(from, into, depth - 1, path)?;
+        drop_whitespace(from)?;
+
+        let _ = path.pop().unwrap();
+
+        let delim = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        match delim {
+            b'}' => break,
+            b',' => (),
+            _ => return Err(io::ErrorKind::InvalidData.into()),
+        }
+    }
+    Ok(())
+}
+
+fn handle_array<R: Read, W: Write>(
+    from: &mut Peekable<Bytes<R>>,
+    into: &mut W,
+    depth: usize,
+    path: &mut Vec<Vec<u8>>,
+) -> io::Result<()> {
+    for idx in 0usize.. {
+        drop_whitespace(from)?;
+        if let Some(Ok(b']')) = from.peek() {
+            let _infallible = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+            break;
+        }
+
+        path.push(format!("{}", idx).into_bytes());
+        handle_one(from, into, depth - 1, path)?;
+        let _ = path.pop().unwrap();
+        drop_whitespace(from)?;
+
+        let delim = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        match delim {
+            b']' => break,
+            b',' => (),
+            _ => return Err(io::ErrorKind::InvalidData.into()),
+        }
     }
     Ok(())
 }
@@ -125,7 +234,9 @@ fn parse_string<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) 
             b'\\' => {
                 let e = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
                 match e {
-                    b'"' | b'/' | b'\\' | b'b' | b'f' | b'r' | b'n' | b't' => (),
+                    b'"' | b'/' | b'\\' | b'b' | b'f' | b'r' | b'n' | b't' => {
+                        into.write_all(&[b'\\', e])?;
+                    }
                     b'u' => {
                         for _ in 0..4 {
                             let h: u8 = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
@@ -134,8 +245,7 @@ fn parse_string<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) 
                             }
                         }
                     }
-                    b'\r' | b'\n' => return Err(io::ErrorKind::InvalidData.into()),
-                    o => write!(into, "\\{}", o)?,
+                    _ => return Err(io::ErrorKind::InvalidData.into()),
                 }
             }
             o => into.write_all(&[o])?,
