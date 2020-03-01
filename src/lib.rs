@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
 use std::io::Write;
@@ -71,32 +72,35 @@ impl<R: Read> Source<R> {
 }
 
 struct Loc {
-    depth: usize,
-    target: usize,
+    depth: isize,
 }
 
 impl Loc {
     fn at_target(&self) -> bool {
-        self.depth == self.target
+        0 == self.depth
     }
 
     fn deeper_than_target(&self) -> bool {
-        self.depth > self.target
+        self.depth > 0
     }
 
     fn shallower_than_target(&self) -> bool {
-        self.depth < self.target
+        self.depth < 0
     }
 }
 
-pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, depth: usize) -> io::Result<()> {
+pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, target: usize) -> io::Result<()> {
     let mut iter = Source::new(from);
     drop_whitespace(&mut iter)?;
-    let mut loc = Loc {
-        target: depth,
-        depth: 0,
-    };
-    handle_one(&mut iter, &mut to, &mut loc, &mut Vec::with_capacity(depth))?;
+    let target = target.checked_add(1).ok_or(io::ErrorKind::InvalidData)?;
+    let depth = -isize::try_from(target).map_err(|_| io::ErrorKind::InvalidData)?;
+    let mut loc = Loc { depth };
+    handle_one(
+        &mut iter,
+        &mut to,
+        &mut loc,
+        &mut Vec::with_capacity(target),
+    )?;
     Ok(())
 }
 
