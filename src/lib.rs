@@ -121,33 +121,33 @@ fn drop_whitespace<R: Read>(from: &mut Source<R>) -> io::Result<()> {
 fn handle_one<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
-    depth: &mut Loc,
+    loc: &mut Loc,
 ) -> io::Result<()> {
-    depth.depth += 1;
-    if depth.at_target() {
-        write_prefix(into, &depth.path)?;
+    loc.depth += 1;
+    if loc.at_target() {
+        write_prefix(into, &loc.path)?;
     }
     match from.next()? {
-        b'{' => handle_object(from, into, depth)?,
-        b'[' => handle_array(from, into, depth)?,
+        b'{' => handle_object(from, into, loc)?,
+        b'[' => handle_array(from, into, loc)?,
         c => {
-            if depth.shallower_than_target() {
-                write_prefix(into, &depth.path)?;
+            if loc.shallower_than_target() {
+                write_prefix(into, &loc.path)?;
             }
             if b'"' == c {
                 parse_string(from, into)?;
             } else {
                 scan_primitive(c, from, into)?
             }
-            if depth.shallower_than_target() {
+            if loc.shallower_than_target() {
                 into.write_all(b"}\n")?;
             }
         }
     }
-    if depth.at_target() {
+    if loc.at_target() {
         into.write_all(b"}\n")?;
     }
-    depth.depth -= 1;
+    loc.depth -= 1;
     Ok(())
 }
 
@@ -166,9 +166,9 @@ fn write_prefix<W: Write>(into: &mut W, path: &[Vec<u8>]) -> io::Result<()> {
 fn handle_object<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
-    depth: &mut Loc,
+    loc: &mut Loc,
 ) -> io::Result<()> {
-    if depth.deeper_than_target() {
+    if loc.deeper_than_target() {
         into.write_all(b"{")?;
     }
     loop {
@@ -180,27 +180,27 @@ fn handle_object<R: Read, W: Write>(
             b'}' => break,
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
-        if depth.deeper_than_target() {
+        if loc.deeper_than_target() {
             parse_string(from, into)?;
         } else {
             let mut key = Vec::with_capacity(32);
             parse_string(from, &mut key)?;
-            depth.path.push(key);
+            loc.path.push(key);
         }
         drop_whitespace(from)?;
         let colon = from.next()?;
         if b':' != colon {
             return Err(io::ErrorKind::InvalidData.into());
         }
-        if depth.deeper_than_target() {
+        if loc.deeper_than_target() {
             into.write_all(b":")?;
         }
         drop_whitespace(from)?;
-        handle_one(from, into, depth)?;
+        handle_one(from, into, loc)?;
         drop_whitespace(from)?;
 
-        if !depth.deeper_than_target() {
-            let _ = depth.path.pop().unwrap();
+        if !loc.deeper_than_target() {
+            let _ = loc.path.pop().unwrap();
         }
 
         let delim = from.next()?;
@@ -209,11 +209,11 @@ fn handle_object<R: Read, W: Write>(
             b',' => (),
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
-        if depth.deeper_than_target() {
+        if loc.deeper_than_target() {
             into.write_all(b",")?;
         }
     }
-    if depth.deeper_than_target() {
+    if loc.deeper_than_target() {
         into.write_all(b",")?;
     }
     Ok(())
@@ -222,9 +222,9 @@ fn handle_object<R: Read, W: Write>(
 fn handle_array<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
-    depth: &mut Loc,
+    loc: &mut Loc,
 ) -> io::Result<()> {
-    if depth.deeper_than_target() {
+    if loc.deeper_than_target() {
         into.write_all(b"[")?;
     }
 
@@ -235,12 +235,12 @@ fn handle_array<R: Read, W: Write>(
             break;
         }
 
-        if !depth.deeper_than_target() {
-            depth.path.push(format!("{}", idx).into_bytes());
+        if !loc.deeper_than_target() {
+            loc.path.push(format!("{}", idx).into_bytes());
         }
-        handle_one(from, into, depth)?;
-        if !depth.deeper_than_target() {
-            let _ = depth.path.pop().unwrap();
+        handle_one(from, into, loc)?;
+        if !loc.deeper_than_target() {
+            let _ = loc.path.pop().unwrap();
         }
 
         drop_whitespace(from)?;
@@ -251,11 +251,11 @@ fn handle_array<R: Read, W: Write>(
             b',' => (),
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
-        if depth.deeper_than_target() {
+        if loc.deeper_than_target() {
             into.write_all(b",")?;
         }
     }
-    if depth.deeper_than_target() {
+    if loc.deeper_than_target() {
         into.write_all(b"]")?;
     }
     Ok(())
