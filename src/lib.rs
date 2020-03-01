@@ -1,28 +1,80 @@
 use std::io;
-use std::io::Bytes;
 use std::io::Read;
 use std::io::Write;
-use std::iter::Peekable;
+
+use iowrap::ReadMany as _;
+
+struct Source<R: Read> {
+    inner: R,
+    buf: [u8; 16 * 1024],
+    len: usize,
+    pos: usize,
+}
+
+impl<R: Read> Source<R> {
+    fn new(inner: R) -> Self {
+        Source {
+            inner,
+            buf: [0u8; 16 * 1024],
+            len: 0,
+            pos: 0,
+        }
+    }
+
+    fn fill(&mut self) -> io::Result<()> {
+        if self.pos == self.len {
+            self.pos = 0;
+            self.len = 0;
+        }
+        let free = &mut self.buf[self.len..];
+        let found = self.inner.read_many(free)?;
+        if 0 == found {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        self.len += found;
+        Ok(())
+    }
+
+    fn next(&mut self) -> io::Result<u8> {
+        loop {
+            if self.pos < self.len {
+                let ret = self.buf[self.pos];
+                self.pos += 1;
+                return Ok(ret);
+            }
+            self.fill()?;
+        }
+    }
+
+    fn peek(&mut self) -> io::Result<u8> {
+        loop {
+            if self.pos < self.len {
+                return Ok(self.buf[self.pos]);
+            }
+            self.fill()?;
+        }
+    }
+}
 
 pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, depth: usize) -> io::Result<()> {
-    let mut iter = from.bytes().peekable();
+    let mut iter = Source::new(from);
     drop_whitespace(&mut iter)?;
     handle_one(&mut iter, &mut to, depth, &mut Vec::with_capacity(depth))?;
     Ok(())
 }
 
-fn drop_whitespace<R: Read>(from: &mut Peekable<Bytes<R>>) -> io::Result<()> {
-    while let Some(Ok(b)) = from.peek() {
+fn drop_whitespace<R: Read>(from: &mut Source<R>) -> io::Result<()> {
+    loop {
+        let b = from.peek()?;
         if !b.is_ascii_whitespace() {
             return Ok(());
         }
-        let _already_checked = from.next();
+        let _already_checked = from.next()?;
     }
-    Ok(())
 }
 
-fn scan_one<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -> io::Result<()> {
-    match from.next().ok_or(io::ErrorKind::UnexpectedEof)?? {
+fn scan_one<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
+    match from.next()? {
         b'{' => scan_object(from, into)?,
         b'[' => scan_array(from, into)?,
         b'"' => parse_string(from, into)?,
@@ -32,7 +84,7 @@ fn scan_one<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -> i
 }
 
 fn handle_one<R: Read, W: Write>(
-    from: &mut Peekable<Bytes<R>>,
+    from: &mut Source<R>,
     into: &mut W,
     depth: usize,
     path: &mut Vec<Vec<u8>>,
@@ -43,7 +95,7 @@ fn handle_one<R: Read, W: Write>(
         into.write_all(b"}\n")?;
         return Ok(());
     }
-    match from.next().ok_or(io::ErrorKind::UnexpectedEof)?? {
+    match from.next()? {
         b'{' => handle_object(from, into, depth, path)?,
         b'[' => handle_array(from, into, depth, path)?,
         b'"' => {
@@ -73,14 +125,14 @@ fn write_prefix<W: Write>(into: &mut W, path: &mut Vec<Vec<u8>>) -> io::Result<(
 }
 
 fn handle_object<R: Read, W: Write>(
-    from: &mut Peekable<Bytes<R>>,
+    from: &mut Source<R>,
     into: &mut W,
     depth: usize,
     path: &mut Vec<Vec<u8>>,
 ) -> io::Result<()> {
     loop {
         drop_whitespace(from)?;
-        let s = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let s = from.next()?;
         match s {
             b',' => continue,
             b'"' => (),
@@ -93,7 +145,7 @@ fn handle_object<R: Read, W: Write>(
             path.push(key);
         }
         drop_whitespace(from)?;
-        let colon = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let colon = from.next()?;
         if b':' != colon {
             return Err(io::ErrorKind::InvalidData.into());
         }
@@ -103,7 +155,7 @@ fn handle_object<R: Read, W: Write>(
 
         let _ = path.pop().unwrap();
 
-        let delim = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let delim = from.next()?;
         match delim {
             b'}' => break,
             b',' => (),
@@ -114,15 +166,15 @@ fn handle_object<R: Read, W: Write>(
 }
 
 fn handle_array<R: Read, W: Write>(
-    from: &mut Peekable<Bytes<R>>,
+    from: &mut Source<R>,
     into: &mut W,
     depth: usize,
     path: &mut Vec<Vec<u8>>,
 ) -> io::Result<()> {
     for idx in 0usize.. {
         drop_whitespace(from)?;
-        if let Some(Ok(b']')) = from.peek() {
-            let _infallible = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        if let Ok(b']') = from.peek() {
+            let _infallible = from.next()?;
             break;
         }
 
@@ -131,7 +183,7 @@ fn handle_array<R: Read, W: Write>(
         let _ = path.pop().unwrap();
         drop_whitespace(from)?;
 
-        let delim = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let delim = from.next()?;
         match delim {
             b']' => break,
             b',' => (),
@@ -141,11 +193,11 @@ fn handle_array<R: Read, W: Write>(
     Ok(())
 }
 
-fn scan_object<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -> io::Result<()> {
+fn scan_object<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
     into.write_all(b"{")?;
     loop {
         drop_whitespace(from)?;
-        let s = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let s = from.next()?;
         match s {
             b',' => continue,
             b'"' => (),
@@ -154,7 +206,7 @@ fn scan_object<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -
         }
         parse_string(from, into)?;
         drop_whitespace(from)?;
-        let colon = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let colon = from.next()?;
         if b':' != colon {
             return Err(io::ErrorKind::InvalidData.into());
         }
@@ -163,7 +215,7 @@ fn scan_object<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -
         scan_one(from, into)?;
         drop_whitespace(from)?;
 
-        let delim = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let delim = from.next()?;
         match delim {
             b'}' => break,
             b',' => (),
@@ -175,20 +227,20 @@ fn scan_object<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -
     Ok(())
 }
 
-fn scan_array<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -> io::Result<()> {
+fn scan_array<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
     into.write_all(b"[")?;
 
     loop {
         drop_whitespace(from)?;
-        if let Some(Ok(b']')) = from.peek() {
-            let _infallible = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        if let Ok(b']') = from.peek() {
+            let _infallible = from.next()?;
             break;
         }
 
         scan_one(from, into)?;
         drop_whitespace(from)?;
 
-        let delim = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let delim = from.next()?;
         match delim {
             b']' => break,
             b',' => (),
@@ -202,44 +254,44 @@ fn scan_array<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) ->
 
 fn scan_primitive<R: Read, W: Write>(
     start: u8,
-    from: &mut Peekable<Bytes<R>>,
+    from: &mut Source<R>,
     into: &mut W,
 ) -> io::Result<()> {
     into.write_all(&[start])?;
-    while let Some(Ok(b)) = from.peek() {
+    while let Ok(b) = from.peek() {
         if b.is_ascii_whitespace()
-            || b',' == *b
-            || b']' == *b
-            || b'}' == *b
-            || b':' == *b
+            || b',' == b
+            || b']' == b
+            || b'}' == b
+            || b':' == b
             || b.is_ascii_control()
         {
             break;
         }
         // infalliable, as we just peeked it
-        let b = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let b = from.next()?;
         into.write_all(&[b])?;
     }
 
     Ok(())
 }
 
-fn parse_string<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) -> io::Result<()> {
+fn parse_string<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
     into.write_all(b"\"")?;
     loop {
-        let b = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+        let b = from.next()?;
         match b {
             b'"' => break,
             b'\r' | b'\n' => return Err(io::ErrorKind::InvalidData.into()),
             b'\\' => {
-                let e = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+                let e = from.next()?;
                 match e {
                     b'"' | b'/' | b'\\' | b'b' | b'f' | b'r' | b'n' | b't' => {
                         into.write_all(&[b'\\', e])?;
                     }
                     b'u' => {
                         for _ in 0..4 {
-                            let h: u8 = from.next().ok_or(io::ErrorKind::UnexpectedEof)??;
+                            let h: u8 = from.next()?;
                             if !h.is_ascii_hexdigit() {
                                 return Err(io::ErrorKind::InvalidData.into());
                             }
@@ -257,10 +309,11 @@ fn parse_string<R: Read, W: Write>(from: &mut Peekable<Bytes<R>>, into: &mut W) 
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
     use super::parse_string;
     use super::unnest_to_ndjson;
-    use std::io;
-    use std::io::Read;
+    use super::Source;
 
     #[test]
     fn zero_depth() -> io::Result<()> {
@@ -275,9 +328,9 @@ mod tests {
 
     fn ps(buf: &str) -> io::Result<String> {
         let mut v = Vec::with_capacity(buf.len());
-        let mut buf = io::Cursor::new(buf.as_bytes()).bytes().peekable();
+        let mut buf = Source::new(io::Cursor::new(buf.as_bytes()));
         // remove leading quote, as scan_one does
-        buf.next().unwrap()?;
+        buf.next()?;
         parse_string(&mut buf, &mut v)?;
         Ok(String::from_utf8(v).unwrap())
     }
