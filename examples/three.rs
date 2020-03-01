@@ -8,5 +8,5 @@ fn main() -> io::Result<()> {
     let stdout = io::stdout();
     let stdout = stdout.lock();
 
-    unnest_to_ndjson(stdin, stdout, 3, HeaderStyle::PathArray)
+    unnest_to_ndjson(stdin, stdout, 3, HeaderStyle::None)
 }
