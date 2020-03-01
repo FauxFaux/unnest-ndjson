@@ -81,15 +81,11 @@ impl Loc {
         0 == self.depth
     }
 
-    fn target_or_deeper(&self) -> bool {
-        self.depth >= 0
-    }
-
-    fn target_or_shallower(&self) -> bool {
+    fn collecting_keys(&self) -> bool {
         self.depth <= 0
     }
 
-    fn deeper_than_target(&self) -> bool {
+    fn producing_regular_output(&self) -> bool {
         self.depth > 0
     }
 
@@ -133,12 +129,11 @@ fn handle_one<R: Read, W: Write>(
     if loc.at_target() {
         write_prefix(into, &loc.path)?;
     }
-    loc.depth += 1;
     match from.next()? {
         b'{' => handle_object(from, into, loc)?,
         b'[' => handle_array(from, into, loc)?,
         c => {
-            if loc.target_or_shallower() {
+            if loc.shallower_than_target() {
                 write_prefix(into, &loc.path)?;
             }
             if b'"' == c {
@@ -146,12 +141,11 @@ fn handle_one<R: Read, W: Write>(
             } else {
                 scan_primitive(c, from, into)?
             }
-            if loc.target_or_shallower() {
+            if loc.shallower_than_target() {
                 into.write_all(b"}\n")?;
             }
         }
     }
-    loc.depth -= 1;
     if loc.at_target() {
         into.write_all(b"}\n")?;
     }
@@ -175,7 +169,9 @@ fn handle_object<R: Read, W: Write>(
     into: &mut W,
     loc: &mut Loc,
 ) -> io::Result<()> {
-    if loc.deeper_than_target() {
+    loc.depth += 1;
+
+    if loc.producing_regular_output() {
         into.write_all(b"{")?;
     }
     loop {
@@ -187,9 +183,10 @@ fn handle_object<R: Read, W: Write>(
             b'}' => break,
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
-        if loc.deeper_than_target() {
+        if loc.producing_regular_output() {
             parse_string(from, into)?;
         } else {
+            assert!(loc.collecting_keys());
             let mut key = Vec::with_capacity(32);
             parse_string(from, &mut key)?;
             loc.path.push(key);
@@ -199,14 +196,14 @@ fn handle_object<R: Read, W: Write>(
         if b':' != colon {
             return Err(io::ErrorKind::InvalidData.into());
         }
-        if loc.deeper_than_target() {
+        if loc.producing_regular_output() {
             into.write_all(b":")?;
         }
         drop_whitespace(from)?;
         handle_one(from, into, loc)?;
         drop_whitespace(from)?;
 
-        if !loc.deeper_than_target() {
+        if loc.collecting_keys() {
             let _ = loc.path.pop().unwrap();
         }
 
@@ -216,13 +213,16 @@ fn handle_object<R: Read, W: Write>(
             b',' => (),
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
-        if loc.deeper_than_target() {
+        if loc.producing_regular_output() {
             into.write_all(b",")?;
         }
     }
-    if loc.deeper_than_target() {
+    if loc.producing_regular_output() {
         into.write_all(b"}")?;
     }
+
+    loc.depth -= 1;
+
     Ok(())
 }
 
@@ -231,7 +231,9 @@ fn handle_array<R: Read, W: Write>(
     into: &mut W,
     loc: &mut Loc,
 ) -> io::Result<()> {
-    if loc.deeper_than_target() {
+    loc.depth += 1;
+
+    if loc.producing_regular_output() {
         into.write_all(b"[")?;
     }
 
@@ -242,11 +244,11 @@ fn handle_array<R: Read, W: Write>(
             break;
         }
 
-        if loc.target_or_shallower() {
+        if loc.collecting_keys() {
             loc.path.push(format!("{}", idx).into_bytes());
         }
         handle_one(from, into, loc)?;
-        if loc.target_or_shallower() {
+        if loc.collecting_keys() {
             let _ = loc.path.pop().unwrap();
         }
 
@@ -258,13 +260,16 @@ fn handle_array<R: Read, W: Write>(
             b',' => (),
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
-        if loc.deeper_than_target() {
+        if loc.producing_regular_output() {
             into.write_all(b",")?;
         }
     }
-    if loc.deeper_than_target() {
+    if loc.producing_regular_output() {
         into.write_all(b"]")?;
     }
+
+    loc.depth -= 1;
+
     Ok(())
 }
 
