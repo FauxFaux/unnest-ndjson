@@ -9,7 +9,7 @@ iowrap = "0.2"
 memchr = "2"
 
 [dev-dependencies]
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [profile.release]
 lto = true

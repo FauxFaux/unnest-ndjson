@@ -58,3 +58,34 @@ fn single_level_array() {
         1,
     );
 }
+
+#[test]
+fn single_level_object() {
+    test_with(
+        &json!({
+            "number": 5,
+            "string": "potato",
+            "boolean": true,
+            "emptyObject": {},
+            "flatObject": { "baz": 6, },
+            "nestedObject": { "foo": { "bar": 6, }, },
+            "doubleObject": { "aye": 7, "be": 8, },
+            "emptyArray": [],
+            "singleArray": [ 5, ],
+            "doubleArray": [ 5, 6, ],
+        }),
+        &[
+            json!({"key": ["number"], "value": 5, }),
+            json!({"key": ["string"], "value": "potato", }),
+            json!({"key": ["boolean"], "value": true, }),
+            json!({"key": ["emptyObject"], "value": {}, }),
+            json!({"key": ["flatObject"], "value": { "baz": 6, }, }),
+            json!({"key": ["nestedObject"], "value": { "foo": { "bar": 6, }, }, }),
+            json!({"key": ["doubleObject"], "value": { "aye": 7, "be": 8, }, }),
+            json!({"key": ["emptyArray"], "value": [], }),
+            json!({"key": ["singleArray"], "value": [ 5, ], }),
+            json!({"key": ["doubleArray"], "value": [ 5, 6, ], }),
+        ],
+        1,
+    );
+}
