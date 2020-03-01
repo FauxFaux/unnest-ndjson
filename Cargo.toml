@@ -14,3 +14,6 @@ serde_json = { version = "1", features = ["preserve_order"] }
 [profile.release]
 lto = true
 panic = "abort"
+
+[[bin]]
+name = "unnest"
