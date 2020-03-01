@@ -70,10 +70,33 @@ impl<R: Read> Source<R> {
     }
 }
 
+struct Loc {
+    depth: usize,
+    target: usize,
+}
+
+impl Loc {
+    fn at_target(&self) -> bool {
+        self.depth == self.target
+    }
+
+    fn deeper_than_target(&self) -> bool {
+        self.depth > self.target
+    }
+
+    fn shallower_than_target(&self) -> bool {
+        self.depth < self.target
+    }
+}
+
 pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, depth: usize) -> io::Result<()> {
     let mut iter = Source::new(from);
     drop_whitespace(&mut iter)?;
-    handle_one(&mut iter, &mut to, depth, &mut Vec::with_capacity(depth))?;
+    let mut loc = Loc {
+        target: depth,
+        depth: 0,
+    };
+    handle_one(&mut iter, &mut to, &mut loc, &mut Vec::with_capacity(depth))?;
     Ok(())
 }
 
@@ -92,42 +115,37 @@ fn drop_whitespace<R: Read>(from: &mut Source<R>) -> io::Result<()> {
     }
 }
 
-fn scan_one<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
-    match from.next()? {
-        b'{' => scan_object(from, into)?,
-        b'[' => scan_array(from, into)?,
-        b'"' => parse_string(from, into)?,
-        c => scan_primitive(c, from, into)?,
-    }
-    Ok(())
-}
-
 fn handle_one<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
-    depth: usize,
+    depth: &mut Loc,
     path: &mut Vec<Vec<u8>>,
 ) -> io::Result<()> {
-    if 0 == depth {
+    depth.depth += 1;
+    if depth.at_target() {
         write_prefix(into, path)?;
-        scan_one(from, into)?;
-        into.write_all(b"}\n")?;
-        return Ok(());
     }
     match from.next()? {
         b'{' => handle_object(from, into, depth, path)?,
         b'[' => handle_array(from, into, depth, path)?,
-        b'"' => {
-            write_prefix(into, path)?;
-            parse_string(from, into)?;
-            into.write_all(b"}\n")?;
-        }
         c => {
-            write_prefix(into, path)?;
-            scan_primitive(c, from, into)?;
-            into.write_all(b"}\n")?;
+            if depth.shallower_than_target() {
+                write_prefix(into, path)?;
+            }
+            if b'"' == c {
+                parse_string(from, into)?;
+            } else {
+                scan_primitive(c, from, into)?
+            }
+            if depth.shallower_than_target() {
+                into.write_all(b"}\n")?;
+            }
         }
     }
+    if depth.at_target() {
+        into.write_all(b"}\n")?;
+    }
+    depth.depth -= 1;
     Ok(())
 }
 
@@ -146,9 +164,12 @@ fn write_prefix<W: Write>(into: &mut W, path: &mut Vec<Vec<u8>>) -> io::Result<(
 fn handle_object<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
-    depth: usize,
+    depth: &mut Loc,
     path: &mut Vec<Vec<u8>>,
 ) -> io::Result<()> {
+    if depth.deeper_than_target() {
+        into.write_all(b"{")?;
+    }
     loop {
         drop_whitespace(from)?;
         let s = from.next()?;
@@ -158,7 +179,9 @@ fn handle_object<R: Read, W: Write>(
             b'}' => break,
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
-        {
+        if depth.deeper_than_target() {
+            parse_string(from, into)?;
+        } else {
             let mut key = Vec::with_capacity(32);
             parse_string(from, &mut key)?;
             path.push(key);
@@ -168,11 +191,16 @@ fn handle_object<R: Read, W: Write>(
         if b':' != colon {
             return Err(io::ErrorKind::InvalidData.into());
         }
+        if depth.deeper_than_target() {
+            into.write_all(b":")?;
+        }
         drop_whitespace(from)?;
-        handle_one(from, into, depth - 1, path)?;
+        handle_one(from, into, depth, path)?;
         drop_whitespace(from)?;
 
-        let _ = path.pop().unwrap();
+        if !depth.deeper_than_target() {
+            let _ = path.pop().unwrap();
+        }
 
         let delim = from.next()?;
         match delim {
@@ -180,6 +208,12 @@ fn handle_object<R: Read, W: Write>(
             b',' => (),
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
+        if depth.deeper_than_target() {
+            into.write_all(b",")?;
+        }
+    }
+    if depth.deeper_than_target() {
+        into.write_all(b",")?;
     }
     Ok(())
 }
@@ -187,9 +221,13 @@ fn handle_object<R: Read, W: Write>(
 fn handle_array<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
-    depth: usize,
+    depth: &mut Loc,
     path: &mut Vec<Vec<u8>>,
 ) -> io::Result<()> {
+    if depth.deeper_than_target() {
+        into.write_all(b"[")?;
+    }
+
     for idx in 0usize.. {
         drop_whitespace(from)?;
         if let Ok(b']') = from.peek() {
@@ -197,9 +235,14 @@ fn handle_array<R: Read, W: Write>(
             break;
         }
 
-        path.push(format!("{}", idx).into_bytes());
-        handle_one(from, into, depth - 1, path)?;
-        let _ = path.pop().unwrap();
+        if !depth.deeper_than_target() {
+            path.push(format!("{}", idx).into_bytes());
+        }
+        handle_one(from, into, depth, path)?;
+        if !depth.deeper_than_target() {
+            let _ = path.pop().unwrap();
+        }
+
         drop_whitespace(from)?;
 
         let delim = from.next()?;
@@ -208,66 +251,13 @@ fn handle_array<R: Read, W: Write>(
             b',' => (),
             _ => return Err(io::ErrorKind::InvalidData.into()),
         }
+        if depth.deeper_than_target() {
+            into.write_all(b",")?;
+        }
     }
-    Ok(())
-}
-
-fn scan_object<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
-    into.write_all(b"{")?;
-    loop {
-        drop_whitespace(from)?;
-        let s = from.next()?;
-        match s {
-            b',' => continue,
-            b'"' => (),
-            b'}' => break,
-            _ => return Err(io::ErrorKind::InvalidData.into()),
-        }
-        parse_string(from, into)?;
-        drop_whitespace(from)?;
-        let colon = from.next()?;
-        if b':' != colon {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        into.write_all(b":")?;
-        drop_whitespace(from)?;
-        scan_one(from, into)?;
-        drop_whitespace(from)?;
-
-        let delim = from.next()?;
-        match delim {
-            b'}' => break,
-            b',' => (),
-            _ => return Err(io::ErrorKind::InvalidData.into()),
-        }
-        into.write_all(b",")?;
+    if depth.deeper_than_target() {
+        into.write_all(b"]")?;
     }
-    into.write_all(b"}")?;
-    Ok(())
-}
-
-fn scan_array<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
-    into.write_all(b"[")?;
-
-    loop {
-        drop_whitespace(from)?;
-        if let Ok(b']') = from.peek() {
-            let _infallible = from.next()?;
-            break;
-        }
-
-        scan_one(from, into)?;
-        drop_whitespace(from)?;
-
-        let delim = from.next()?;
-        match delim {
-            b']' => break,
-            b',' => (),
-            _ => return Err(io::ErrorKind::InvalidData.into()),
-        }
-        into.write_all(b",")?;
-    }
-    into.write_all(b"]")?;
     Ok(())
 }
 
