@@ -28,11 +28,24 @@ impl<R: Read> Source<R> {
         }
         let free = &mut self.buf[self.len..];
         let found = self.inner.read_many(free)?;
-        if 0 == found {
+        if 0 == found && 0 == self.len {
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
         self.len += found;
         Ok(())
+    }
+
+    fn buf(&self) -> &[u8] {
+        &self.buf[self.pos..self.len]
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.pos += amt;
+    }
+
+    fn all_useless(&mut self) {
+        self.pos = 0;
+        self.len = 0;
     }
 
     fn next(&mut self) -> io::Result<u8> {
@@ -65,11 +78,16 @@ pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, depth: usize) -> 
 
 fn drop_whitespace<R: Read>(from: &mut Source<R>) -> io::Result<()> {
     loop {
-        let b = from.peek()?;
-        if !b.is_ascii_whitespace() {
-            return Ok(());
+        match from.buf().iter().position(|&b| !b.is_ascii_whitespace()) {
+            Some(end) => {
+                from.consume(end);
+                return Ok(());
+            }
+            None => {
+                from.all_useless();
+                from.fill()?;
+            }
         }
-        let _already_checked = from.next()?;
     }
 }
 
