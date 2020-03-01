@@ -4,12 +4,12 @@ use serde_json::from_slice;
 use serde_json::json;
 use serde_json::to_vec_pretty;
 use serde_json::Value;
-use unnest::unnest_to_ndjson;
+use unnest::{unnest_to_ndjson, HeaderStyle};
 
-fn test_with(orig: &Value, expected: &[Value], target: usize) {
+fn test_with(orig: &Value, expected: &[Value], target: usize, header_style: HeaderStyle) {
     let input = io::Cursor::new(to_vec_pretty(&orig).expect("serialisation of reference value"));
     let mut output = Vec::with_capacity(input.get_ref().len());
-    let () = unnest_to_ndjson(input, &mut output, target).expect("unnest");
+    let () = unnest_to_ndjson(input, &mut output, target, header_style).expect("unnest");
     let mut lines = Vec::with_capacity(expected.len());
     println!("{}", String::from_utf8_lossy(&output));
     for line in output.split(|&c| b'\n' == c) {
@@ -32,8 +32,8 @@ fn test_with(orig: &Value, expected: &[Value], target: usize) {
 
 #[test]
 fn empty() {
-    test_with(&json!({}), &[], 1);
-    test_with(&json!([]), &[], 1);
+    test_with(&json!({}), &[], 1, HeaderStyle::PathArray);
+    test_with(&json!([]), &[], 1, HeaderStyle::PathArray);
 }
 
 #[test]
@@ -64,6 +64,7 @@ fn single_level_array() {
             json!({"key": [9], "value": [ 5, 6, ], }),
         ],
         1,
+        HeaderStyle::PathArray,
     );
 }
 
@@ -95,6 +96,7 @@ fn single_level_object() {
             json!({"key": ["doubleArray"], "value": [ 5, 6, ], }),
         ],
         1,
+        HeaderStyle::PathArray,
     );
 }
 
@@ -126,5 +128,38 @@ fn double_level_object() {
             json!({"key": ["doubleArray", 1], "value": 6, }),
         ],
         2,
+        HeaderStyle::PathArray,
+    );
+}
+
+#[test]
+fn double_level_object_no_headers() {
+    test_with(
+        &json!({
+            "number": 5,
+            "string": "potato",
+            "boolean": true,
+            "emptyObject": {},
+            "flatObject": { "baz": 6, },
+            "nestedObject": { "foo": { "bar": 6, }, },
+            "doubleObject": { "aye": 7, "be": 8, },
+            "emptyArray": [],
+            "singleArray": [ 5, ],
+            "doubleArray": [ 5, 6, ],
+        }),
+        &[
+            json!(5),
+            json!("potato"),
+            json!(true),
+            json!(6),
+            json!({ "bar": 6, }),
+            json!(7),
+            json!(8),
+            json!(5),
+            json!(5),
+            json!(6),
+        ],
+        2,
+        HeaderStyle::None,
     );
 }

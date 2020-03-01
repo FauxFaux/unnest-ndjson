@@ -7,11 +7,20 @@ use memchr::memchr;
 
 mod source;
 
+use iowrap::Ignore;
 use source::Source;
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum HeaderStyle {
+    None,
+    PathArray,
+}
 
 struct Loc {
     depth: isize,
     path: Vec<Vec<u8>>,
+    include_header: bool,
 }
 
 impl Loc {
@@ -30,15 +39,29 @@ impl Loc {
     fn shallower_than_target(&self) -> bool {
         self.depth < 0
     }
+
+    fn write_suffix<W: Write>(&self, into: &mut W) -> io::Result<()> {
+        if self.include_header {
+            into.write_all(b"}\n")
+        } else {
+            into.write_all(b"\n")
+        }
+    }
 }
 
-pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, target: usize) -> io::Result<()> {
+pub fn unnest_to_ndjson<R: Read, W: Write>(
+    from: R,
+    mut to: W,
+    target: usize,
+    header_style: HeaderStyle,
+) -> io::Result<()> {
     let mut iter = Source::new(from);
     drop_whitespace(&mut iter)?;
     let depth = -isize::try_from(target).map_err(|_| io::ErrorKind::InvalidData)?;
     let mut loc = Loc {
         depth,
         path: Vec::with_capacity(target),
+        include_header: header_style == HeaderStyle::PathArray,
     };
     handle_one(&mut iter, &mut to, &mut loc)?;
     Ok(())
@@ -64,14 +87,14 @@ fn handle_one<R: Read, W: Write>(
     into: &mut W,
     loc: &mut Loc,
 ) -> io::Result<()> {
-    if loc.at_target() {
+    if loc.include_header && loc.at_target() {
         write_prefix(into, &loc.path)?;
     }
     match from.next()? {
         b'{' => handle_object(from, into, loc)?,
         b'[' => handle_array(from, into, loc)?,
         c => {
-            if loc.shallower_than_target() {
+            if loc.include_header && loc.shallower_than_target() {
                 write_prefix(into, &loc.path)?;
             }
             if b'"' == c {
@@ -80,12 +103,12 @@ fn handle_one<R: Read, W: Write>(
                 scan_primitive(c, from, into)?
             }
             if loc.shallower_than_target() {
-                into.write_all(b"}\n")?;
+                loc.write_suffix(into)?;
             }
         }
     }
     if loc.at_target() {
-        into.write_all(b"}\n")?;
+        loc.write_suffix(into)?;
     }
     Ok(())
 }
@@ -125,9 +148,13 @@ fn handle_object<R: Read, W: Write>(
             parse_string(from, into)?;
         } else {
             assert!(loc.collecting_keys());
-            let mut key = Vec::with_capacity(32);
-            parse_string(from, &mut key)?;
-            loc.path.push(key);
+            if loc.include_header {
+                let mut key = Vec::with_capacity(32);
+                parse_string(from, &mut key)?;
+                loc.path.push(key);
+            } else {
+                parse_string(from, &mut Ignore {})?;
+            }
         }
         drop_whitespace(from)?;
         let colon = from.next()?;
@@ -141,7 +168,7 @@ fn handle_object<R: Read, W: Write>(
         handle_one(from, into, loc)?;
         drop_whitespace(from)?;
 
-        if loc.collecting_keys() {
+        if loc.include_header && loc.collecting_keys() {
             let _ = loc.path.pop().unwrap();
         }
 
@@ -182,11 +209,11 @@ fn handle_array<R: Read, W: Write>(
             break;
         }
 
-        if loc.collecting_keys() {
+        if loc.include_header && loc.collecting_keys() {
             loc.path.push(format!("{}", idx).into_bytes());
         }
         handle_one(from, into, loc)?;
-        if loc.collecting_keys() {
+        if loc.include_header && loc.collecting_keys() {
             let _ = loc.path.pop().unwrap();
         }
 

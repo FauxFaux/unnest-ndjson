@@ -1,5 +1,5 @@
 use std::io;
-use unnest::unnest_to_ndjson;
+use unnest::{unnest_to_ndjson, HeaderStyle};
 
 fn main() -> io::Result<()> {
     let stdin = io::stdin();
@@ -8,5 +8,5 @@ fn main() -> io::Result<()> {
     let stdout = io::stdout();
     let stdout = stdout.lock();
 
-    unnest_to_ndjson(stdin, stdout, 0)
+    unnest_to_ndjson(stdin, stdout, 0, HeaderStyle::None)
 }
