@@ -327,19 +327,7 @@ mod tests {
     use std::io;
 
     use super::parse_string;
-    use super::unnest_to_ndjson;
     use super::Source;
-
-    #[test]
-    fn zero_depth() -> io::Result<()> {
-        let mut dest = Vec::with_capacity(128);
-        unnest_to_ndjson(io::Cursor::new(br#" { "foo" : -5e6 } "#), &mut dest, 0)?;
-        assert_eq!(
-            String::from_utf8_lossy(br#"{"foo":-5e6}"#),
-            String::from_utf8_lossy(dest.as_slice())
-        );
-        Ok(())
-    }
 
     fn ps(buf: &str) -> io::Result<String> {
         let mut v = Vec::with_capacity(buf.len());

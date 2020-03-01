@@ -8,6 +8,9 @@ edition = "2018"
 iowrap = "0.2"
 memchr = "2"
 
+[dev-dependencies]
+serde_json = "1"
+
 [profile.release]
 lto = true
 panic = "abort"
