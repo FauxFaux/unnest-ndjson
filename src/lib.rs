@@ -81,6 +81,14 @@ impl Loc {
         0 == self.depth
     }
 
+    fn target_or_deeper(&self) -> bool {
+        self.depth >= 0
+    }
+
+    fn target_or_shallower(&self) -> bool {
+        self.depth <= 0
+    }
+
     fn deeper_than_target(&self) -> bool {
         self.depth > 0
     }
@@ -93,7 +101,6 @@ impl Loc {
 pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, target: usize) -> io::Result<()> {
     let mut iter = Source::new(from);
     drop_whitespace(&mut iter)?;
-    let target = target.checked_add(1).ok_or(io::ErrorKind::InvalidData)?;
     let depth = -isize::try_from(target).map_err(|_| io::ErrorKind::InvalidData)?;
     let mut loc = Loc {
         depth,
@@ -123,15 +130,15 @@ fn handle_one<R: Read, W: Write>(
     into: &mut W,
     loc: &mut Loc,
 ) -> io::Result<()> {
-    loc.depth += 1;
     if loc.at_target() {
         write_prefix(into, &loc.path)?;
     }
+    loc.depth += 1;
     match from.next()? {
         b'{' => handle_object(from, into, loc)?,
         b'[' => handle_array(from, into, loc)?,
         c => {
-            if loc.shallower_than_target() {
+            if loc.target_or_shallower() {
                 write_prefix(into, &loc.path)?;
             }
             if b'"' == c {
@@ -139,15 +146,15 @@ fn handle_one<R: Read, W: Write>(
             } else {
                 scan_primitive(c, from, into)?
             }
-            if loc.shallower_than_target() {
+            if loc.target_or_shallower() {
                 into.write_all(b"}\n")?;
             }
         }
     }
+    loc.depth -= 1;
     if loc.at_target() {
         into.write_all(b"}\n")?;
     }
-    loc.depth -= 1;
     Ok(())
 }
 
@@ -214,7 +221,7 @@ fn handle_object<R: Read, W: Write>(
         }
     }
     if loc.deeper_than_target() {
-        into.write_all(b",")?;
+        into.write_all(b"}")?;
     }
     Ok(())
 }
@@ -235,11 +242,11 @@ fn handle_array<R: Read, W: Write>(
             break;
         }
 
-        if !loc.deeper_than_target() {
+        if loc.target_or_shallower() {
             loc.path.push(format!("{}", idx).into_bytes());
         }
         handle_one(from, into, loc)?;
-        if !loc.deeper_than_target() {
+        if loc.target_or_shallower() {
             let _ = loc.path.pop().unwrap();
         }
 
