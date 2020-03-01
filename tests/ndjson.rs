@@ -19,6 +19,14 @@ fn test_with(orig: &Value, expected: &[Value], target: usize) {
         let line: Value = from_slice(line).expect("valid json");
         lines.push(line);
     }
+    for (i, line) in lines.iter().enumerate() {
+        assert_eq!(
+            expected.get(i),
+            Some(line),
+            "comparing line {} (zero indexed)",
+            i
+        );
+    }
     assert_eq!(expected, lines.as_slice());
 }
 
@@ -87,5 +95,36 @@ fn single_level_object() {
             json!({"key": ["doubleArray"], "value": [ 5, 6, ], }),
         ],
         1,
+    );
+}
+
+#[test]
+fn double_level_object() {
+    test_with(
+        &json!({
+            "number": 5,
+            "string": "potato",
+            "boolean": true,
+            "emptyObject": {},
+            "flatObject": { "baz": 6, },
+            "nestedObject": { "foo": { "bar": 6, }, },
+            "doubleObject": { "aye": 7, "be": 8, },
+            "emptyArray": [],
+            "singleArray": [ 5, ],
+            "doubleArray": [ 5, 6, ],
+        }),
+        &[
+            json!({"key": ["number"], "value": 5, }),
+            json!({"key": ["string"], "value": "potato", }),
+            json!({"key": ["boolean"], "value": true, }),
+            json!({"key": ["flatObject", "baz"], "value": 6, }),
+            json!({"key": ["nestedObject", "foo"], "value": { "bar": 6, }, }),
+            json!({"key": ["doubleObject", "aye"], "value": 7, }),
+            json!({"key": ["doubleObject", "be"], "value": 8, }),
+            json!({"key": ["singleArray", 0], "value": 5, }),
+            json!({"key": ["doubleArray", 0], "value": 5, }),
+            json!({"key": ["doubleArray", 1], "value": 6, }),
+        ],
+        2,
     );
 }
