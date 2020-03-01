@@ -3,11 +3,11 @@ use std::io;
 use std::io::Read;
 use std::io::Write;
 
+use iowrap::Ignore;
 use memchr::memchr;
 
 mod source;
 
-use iowrap::Ignore;
 use source::Source;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
