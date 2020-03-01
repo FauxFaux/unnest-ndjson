@@ -3,6 +3,7 @@ use std::io::Read;
 use std::io::Write;
 
 use iowrap::ReadMany as _;
+use memchr::memchr;
 
 struct Source<R: Read> {
     inner: R,
@@ -297,6 +298,12 @@ fn scan_primitive<R: Read, W: Write>(
 fn parse_string<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
     into.write_all(b"\"")?;
     loop {
+        let buf = from.buf();
+        let quote = memchr(b'"', buf).unwrap_or(buf.len());
+        let escape = memchr(b'\\', buf).unwrap_or(buf.len());
+        let safe = quote.min(escape);
+        into.write_all(&buf[..safe])?;
+        from.consume(safe);
         let b = from.next()?;
         match b {
             b'"' => break,
