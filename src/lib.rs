@@ -73,6 +73,7 @@ impl<R: Read> Source<R> {
 
 struct Loc {
     depth: isize,
+    path: Vec<Vec<u8>>,
 }
 
 impl Loc {
@@ -94,13 +95,11 @@ pub fn unnest_to_ndjson<R: Read, W: Write>(from: R, mut to: W, target: usize) ->
     drop_whitespace(&mut iter)?;
     let target = target.checked_add(1).ok_or(io::ErrorKind::InvalidData)?;
     let depth = -isize::try_from(target).map_err(|_| io::ErrorKind::InvalidData)?;
-    let mut loc = Loc { depth };
-    handle_one(
-        &mut iter,
-        &mut to,
-        &mut loc,
-        &mut Vec::with_capacity(target),
-    )?;
+    let mut loc = Loc {
+        depth,
+        path: Vec::with_capacity(target),
+    };
+    handle_one(&mut iter, &mut to, &mut loc)?;
     Ok(())
 }
 
@@ -123,18 +122,17 @@ fn handle_one<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
     depth: &mut Loc,
-    path: &mut Vec<Vec<u8>>,
 ) -> io::Result<()> {
     depth.depth += 1;
     if depth.at_target() {
-        write_prefix(into, path)?;
+        write_prefix(into, &depth.path)?;
     }
     match from.next()? {
-        b'{' => handle_object(from, into, depth, path)?,
-        b'[' => handle_array(from, into, depth, path)?,
+        b'{' => handle_object(from, into, depth)?,
+        b'[' => handle_array(from, into, depth)?,
         c => {
             if depth.shallower_than_target() {
-                write_prefix(into, path)?;
+                write_prefix(into, &depth.path)?;
             }
             if b'"' == c {
                 parse_string(from, into)?;
@@ -153,7 +151,7 @@ fn handle_one<R: Read, W: Write>(
     Ok(())
 }
 
-fn write_prefix<W: Write>(into: &mut W, path: &mut Vec<Vec<u8>>) -> io::Result<()> {
+fn write_prefix<W: Write>(into: &mut W, path: &[Vec<u8>]) -> io::Result<()> {
     into.write_all(br#"{"key":["#)?;
     for (pos, path_segment) in path.iter().enumerate() {
         into.write_all(path_segment)?;
@@ -169,7 +167,6 @@ fn handle_object<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
     depth: &mut Loc,
-    path: &mut Vec<Vec<u8>>,
 ) -> io::Result<()> {
     if depth.deeper_than_target() {
         into.write_all(b"{")?;
@@ -188,7 +185,7 @@ fn handle_object<R: Read, W: Write>(
         } else {
             let mut key = Vec::with_capacity(32);
             parse_string(from, &mut key)?;
-            path.push(key);
+            depth.path.push(key);
         }
         drop_whitespace(from)?;
         let colon = from.next()?;
@@ -199,11 +196,11 @@ fn handle_object<R: Read, W: Write>(
             into.write_all(b":")?;
         }
         drop_whitespace(from)?;
-        handle_one(from, into, depth, path)?;
+        handle_one(from, into, depth)?;
         drop_whitespace(from)?;
 
         if !depth.deeper_than_target() {
-            let _ = path.pop().unwrap();
+            let _ = depth.path.pop().unwrap();
         }
 
         let delim = from.next()?;
@@ -226,7 +223,6 @@ fn handle_array<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
     depth: &mut Loc,
-    path: &mut Vec<Vec<u8>>,
 ) -> io::Result<()> {
     if depth.deeper_than_target() {
         into.write_all(b"[")?;
@@ -240,11 +236,11 @@ fn handle_array<R: Read, W: Write>(
         }
 
         if !depth.deeper_than_target() {
-            path.push(format!("{}", idx).into_bytes());
+            depth.path.push(format!("{}", idx).into_bytes());
         }
-        handle_one(from, into, depth, path)?;
+        handle_one(from, into, depth)?;
         if !depth.deeper_than_target() {
-            let _ = path.pop().unwrap();
+            let _ = depth.path.pop().unwrap();
         }
 
         drop_whitespace(from)?;
