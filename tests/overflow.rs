@@ -9,7 +9,8 @@ use unnest::HeaderStyle;
 #[test]
 fn stack_abuse() {
     let mut buf = Vec::with_capacity(4000);
-    let level = 910;
+    let level = 8_634;
+    // let level = 910;
     buf.extend_from_slice(&vec![b'['; level]);
     buf.push(b'5');
     buf.extend_from_slice(&vec![b']'; level]);

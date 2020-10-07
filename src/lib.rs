@@ -63,7 +63,9 @@ pub fn unnest_to_ndjson<R: Read, W: Write>(
         path: Vec::with_capacity(target),
         include_header: header_style == HeaderStyle::PathArray,
     };
-    handle_one(&mut iter, &mut to, &mut loc)?;
+    loop {
+        handle_one(&mut iter, &mut to, &mut loc)?;
+    }
     Ok(())
 }
 
@@ -191,6 +193,7 @@ fn handle_object<R: Read, W: Write>(
     Ok(())
 }
 
+#[inline]
 fn handle_array<R: Read, W: Write>(
     from: &mut Source<R>,
     into: &mut W,
