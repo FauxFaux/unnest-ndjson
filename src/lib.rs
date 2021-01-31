@@ -56,7 +56,6 @@ pub fn unnest_to_ndjson<R: Read, W: Write>(
     header_style: HeaderStyle,
 ) -> io::Result<()> {
     let mut iter = Source::new(from);
-    drop_whitespace(&mut iter)?;
     let depth = -isize::try_from(target).map_err(|_| io::ErrorKind::InvalidData)?;
     let mut loc = Loc {
         depth,
@@ -64,6 +63,11 @@ pub fn unnest_to_ndjson<R: Read, W: Write>(
         include_header: header_style == HeaderStyle::PathArray,
     };
     loop {
+        match drop_whitespace(&mut iter) {
+            Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
+            Err(e) => Err(e)?,
+            Ok(()) => (),
+        }
         handle_one(&mut iter, &mut to, &mut loc)?;
     }
     Ok(())
