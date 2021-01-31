@@ -19,6 +19,7 @@ fn run() -> io::Result<i32> {
             match arg.as_str() {
                 "--path" => {
                     header_style = HeaderStyle::PathArray;
+                    continue;
                 }
                 _ => {
                     eprintln!("unrecognised arg: {:?}", arg);
