@@ -4,7 +4,7 @@ use serde_json::from_slice;
 use serde_json::json;
 use serde_json::to_vec_pretty;
 use serde_json::Value;
-use unnest::{unnest_to_ndjson, HeaderStyle};
+use unnest_ndjson::{unnest_to_ndjson, HeaderStyle};
 
 fn test_with(orig: &Value, expected: &[Value], target: usize, header_style: HeaderStyle) {
     let input = io::Cursor::new(to_vec_pretty(&orig).expect("serialisation of reference value"));

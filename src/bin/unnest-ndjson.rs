@@ -3,7 +3,7 @@ use std::io;
 use std::process;
 use std::str::FromStr;
 
-use unnest::{unnest_to_ndjson, HeaderStyle};
+use unnest_ndjson::{unnest_to_ndjson, HeaderStyle};
 
 fn main() -> io::Result<()> {
     process::exit(run()?);

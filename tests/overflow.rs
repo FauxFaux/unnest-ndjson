@@ -3,8 +3,8 @@ use std::io;
 use serde_json::from_slice;
 use serde_json::json;
 use serde_json::Value;
-use unnest::unnest_to_ndjson;
-use unnest::HeaderStyle;
+use unnest_ndjson::unnest_to_ndjson;
+use unnest_ndjson::HeaderStyle;
 
 #[test]
 fn stack_abuse() {

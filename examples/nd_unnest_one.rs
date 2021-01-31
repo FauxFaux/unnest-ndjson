@@ -1,5 +1,5 @@
 use std::io;
-use unnest::{unnest_to_ndjson, HeaderStyle};
+use unnest_ndjson::{unnest_to_ndjson, HeaderStyle};
 
 fn main() -> io::Result<()> {
     let stdin = io::stdin();
