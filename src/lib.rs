@@ -1,13 +1,14 @@
 use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
-use std::io::Write;
 
 use iowrap::Ignore;
 use memchr::memchr;
 
+mod sink;
 mod source;
 
+pub use crate::sink::{MiniWrite, Sinker};
 use source::Source;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -40,7 +41,7 @@ impl Loc {
         self.depth < 0
     }
 
-    fn write_suffix<W: Write>(&self, into: &mut W) -> io::Result<()> {
+    fn write_suffix<W: sink::MiniWrite>(&self, into: &mut W) -> io::Result<()> {
         if self.include_header {
             into.write_all(b"}\n")
         } else {
@@ -49,9 +50,9 @@ impl Loc {
     }
 }
 
-pub fn unnest_to_ndjson<R: Read, W: Write>(
+pub fn unnest_to_ndjson<R: Read>(
     from: R,
-    mut to: W,
+    mut to: impl Sinker,
     target: usize,
     header_style: HeaderStyle,
 ) -> io::Result<()> {
@@ -88,9 +89,9 @@ fn drop_whitespace<R: Read>(from: &mut Source<R>) -> io::Result<()> {
     }
 }
 
-fn handle_one<R: Read, W: Write>(
+fn handle_one<R: Read>(
     from: &mut Source<R>,
-    into: &mut W,
+    into: &mut impl Sinker,
     loc: &mut Loc,
 ) -> io::Result<()> {
     if loc.include_header && loc.at_target() {
@@ -119,7 +120,7 @@ fn handle_one<R: Read, W: Write>(
     Ok(())
 }
 
-fn write_prefix<W: Write>(into: &mut W, path: &[Vec<u8>]) -> io::Result<()> {
+fn write_prefix(into: &mut impl Sinker, path: &[Vec<u8>]) -> io::Result<()> {
     into.write_all(br#"{"key":["#)?;
     for (pos, path_segment) in path.iter().enumerate() {
         into.write_all(path_segment)?;
@@ -131,9 +132,9 @@ fn write_prefix<W: Write>(into: &mut W, path: &[Vec<u8>]) -> io::Result<()> {
     Ok(())
 }
 
-fn handle_object<R: Read, W: Write>(
+fn handle_object<R: Read>(
     from: &mut Source<R>,
-    into: &mut W,
+    into: &mut impl Sinker,
     loc: &mut Loc,
 ) -> io::Result<()> {
     loc.depth += 1;
@@ -198,9 +199,9 @@ fn handle_object<R: Read, W: Write>(
 }
 
 #[inline]
-fn handle_array<R: Read, W: Write>(
+fn handle_array<R: Read>(
     from: &mut Source<R>,
-    into: &mut W,
+    into: &mut impl Sinker,
     loc: &mut Loc,
 ) -> io::Result<()> {
     loc.depth += 1;
@@ -245,7 +246,7 @@ fn handle_array<R: Read, W: Write>(
     Ok(())
 }
 
-fn scan_primitive<R: Read, W: Write>(
+fn scan_primitive<R: Read, W: sink::MiniWrite>(
     start: u8,
     from: &mut Source<R>,
     into: &mut W,
@@ -269,7 +270,7 @@ fn scan_primitive<R: Read, W: Write>(
     Ok(())
 }
 
-fn parse_string<R: Read, W: Write>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
+fn parse_string<R: Read, W: sink::MiniWrite>(from: &mut Source<R>, into: &mut W) -> io::Result<()> {
     into.write_all(b"\"")?;
     loop {
         let buf = from.buf();
