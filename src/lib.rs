@@ -21,7 +21,7 @@ pub enum HeaderStyle {
 struct Loc {
     depth: isize,
     path: Vec<Vec<u8>>,
-    include_header: bool,
+    header_style: HeaderStyle,
 }
 
 impl Loc {
@@ -41,11 +41,14 @@ impl Loc {
         self.depth < 0
     }
 
-    fn write_suffix<W: sink::MiniWrite>(&self, into: &mut W) -> io::Result<()> {
-        if self.include_header {
-            into.write_all(b"}\n")
-        } else {
-            into.write_all(b"\n")
+    fn write_suffix(&self, into: &mut impl Sinker) -> io::Result<()> {
+        into.observe_end(self.header_style)
+    }
+
+    fn compute_header(&self) -> bool {
+        match self.header_style {
+            HeaderStyle::None => false,
+            HeaderStyle::PathArray => true,
         }
     }
 }
@@ -61,7 +64,7 @@ pub fn unnest_to_ndjson<R: Read>(
     let mut loc = Loc {
         depth,
         path: Vec::with_capacity(target),
-        include_header: header_style == HeaderStyle::PathArray,
+        header_style,
     };
     loop {
         match drop_whitespace(&mut iter) {
@@ -94,15 +97,15 @@ fn handle_one<R: Read>(
     into: &mut impl Sinker,
     loc: &mut Loc,
 ) -> io::Result<()> {
-    if loc.include_header && loc.at_target() {
-        write_prefix(into, &loc.path)?;
+    if loc.compute_header() && loc.at_target() {
+        into.observe_new_item(&loc.path, loc.header_style)?;
     }
     match from.next()? {
         b'{' => handle_object(from, into, loc)?,
         b'[' => handle_array(from, into, loc)?,
         c => {
-            if loc.include_header && loc.shallower_than_target() {
-                write_prefix(into, &loc.path)?;
+            if loc.compute_header() && loc.shallower_than_target() {
+                into.observe_new_item(&loc.path, loc.header_style)?;
             }
             if b'"' == c {
                 parse_string(from, into)?;
@@ -117,18 +120,6 @@ fn handle_one<R: Read>(
     if loc.at_target() {
         loc.write_suffix(into)?;
     }
-    Ok(())
-}
-
-fn write_prefix(into: &mut impl Sinker, path: &[Vec<u8>]) -> io::Result<()> {
-    into.write_all(br#"{"key":["#)?;
-    for (pos, path_segment) in path.iter().enumerate() {
-        into.write_all(path_segment)?;
-        if pos != path.len() - 1 {
-            into.write_all(b",")?;
-        }
-    }
-    into.write_all(br#"],"value":"#)?;
     Ok(())
 }
 
@@ -155,7 +146,7 @@ fn handle_object<R: Read>(
             parse_string(from, into)?;
         } else {
             assert!(loc.collecting_keys());
-            if loc.include_header {
+            if loc.compute_header() {
                 let mut key = Vec::with_capacity(32);
                 parse_string(from, &mut key)?;
                 loc.path.push(key);
@@ -175,7 +166,7 @@ fn handle_object<R: Read>(
         handle_one(from, into, loc)?;
         drop_whitespace(from)?;
 
-        if loc.include_header && loc.collecting_keys() {
+        if loc.compute_header() && loc.collecting_keys() {
             let _ = loc.path.pop().unwrap();
         }
 
@@ -217,11 +208,11 @@ fn handle_array<R: Read>(
             break;
         }
 
-        if loc.include_header && loc.collecting_keys() {
+        if loc.compute_header() && loc.collecting_keys() {
             loc.path.push(format!("{}", idx).into_bytes());
         }
         handle_one(from, into, loc)?;
-        if loc.include_header && loc.collecting_keys() {
+        if loc.compute_header() && loc.collecting_keys() {
             let _ = loc.path.pop().unwrap();
         }
 
