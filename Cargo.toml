@@ -2,7 +2,7 @@
 name = "unnest-ndjson"
 version = "0.1.0"
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 iowrap = "0.2"
