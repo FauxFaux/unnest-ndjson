@@ -1,0 +1,5 @@
+{
+  "john": {"class": "warrior"},
+  "sam": {"class": "wizard"},
+  "alex": {"class": "terrible"}
+}
