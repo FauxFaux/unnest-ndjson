@@ -2,11 +2,19 @@ use std::env;
 use std::io;
 use std::process;
 use std::str::FromStr;
+use std::thread;
 
 use unnest_ndjson::{unnest_to_ndjson, HeaderStyle};
 
 fn main() -> io::Result<()> {
-    process::exit(run()?);
+    process::exit(
+        // evading stack problems, the lazy way
+        thread::Builder::new()
+            .stack_size(20 * 1024 * 1024)
+            .spawn(run)?
+            .join()
+            .expect("worker panicked")?,
+    )
 }
 
 fn run() -> io::Result<i32> {
