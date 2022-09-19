@@ -2,6 +2,13 @@
 name = "unnest-ndjson"
 version = "0.1.0"
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
+
+description = "Convert large JSON documents to ndjson/jsonlines"
+repository = "https://github.com/FauxFaux/unnest-ndjson"
+readme = "README.md"
+categories = ["encoding"]
+license = "MIT OR Apache-2.0"
+
 edition = "2021"
 
 [dependencies]
