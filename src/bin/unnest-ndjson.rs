@@ -22,6 +22,7 @@ fn run() -> io::Result<i32> {
     let us = args.next().expect("bin name");
     let mut header_style = HeaderStyle::None;
     let mut target = None;
+    let usage = || eprintln!("usage: {:?} [--path] TARGET_DEPTH", us);
     for arg in args {
         if arg.starts_with('-') {
             match arg.as_str() {
@@ -31,6 +32,7 @@ fn run() -> io::Result<i32> {
                 }
                 _ => {
                     eprintln!("unrecognised arg: {:?}", arg);
+                    usage();
                     return Ok(3);
                 }
             }
@@ -39,7 +41,8 @@ fn run() -> io::Result<i32> {
         match usize::from_str(&arg) {
             Ok(v) => target = Some(v),
             Err(e) => {
-                eprintln!("invalid target depth: {:?}: {}", arg, e);
+                eprintln!("invalid target depth, try '1': {:?}: {}", arg, e);
+                usage();
                 return Ok(4);
             }
         }
@@ -48,7 +51,7 @@ fn run() -> io::Result<i32> {
     let target = match target {
         Some(t) => t,
         None => {
-            eprintln!("usage: {:?} [--path] TARGET_DEPTH", us);
+            usage();
             return Ok(5);
         }
     };
