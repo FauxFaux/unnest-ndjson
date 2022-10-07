@@ -1,3 +1,8 @@
+//! Convert a large json document into smaller, easier to process documents, quickly.
+//!
+//! Call [unnest_to_ndjson] on your stream, and receive a much nicer stream, or some
+//! callbacks.
+
 use std::convert::TryFrom;
 use std::io;
 use std::io::Read;
@@ -11,10 +16,18 @@ mod source;
 pub use crate::sink::{MiniWrite, Sinker};
 use source::Source;
 
+/// Control what information is retained for individual result documents
 #[derive(Copy, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum HeaderStyle {
+    /// No information is retained.
     None,
+    /// The path to the child document is retained.
+    ///
+    /// `{"a": {"H": 6}, "b": {"H": 7}}` would become,
+    /// with the default formatter and a target of `1`,
+    /// `{"key":["a"],"value":{"H":6}}` and
+    /// `{"key":["b"],"value":{"H":6}}`
     PathArray,
 }
 
@@ -53,6 +66,16 @@ impl Loc {
     }
 }
 
+/// Consume a large JSON document from a `Read`, and write sub documents to a destination.
+///
+/// The typical destination is just a `Write` implementation, like a [std::fs::File],
+/// or a [Vec]. Alternatively, you can use the [Sinker] interface to get access to fragments
+/// of documents.
+///
+/// Configure the level of un-nesting with the `target` parameter. `1` will remove one level
+/// of nesting, such as converting `[{"a":5}, {"a":6}]` into `{"a":5}` and `{"a":6}`.
+///
+/// `header_style` controls how much context to retain. See [HeaderStyle].
 pub fn unnest_to_ndjson<R: Read>(
     from: R,
     mut to: impl Sinker,
@@ -189,7 +212,6 @@ fn handle_object<R: Read>(
     Ok(())
 }
 
-#[inline]
 fn handle_array<R: Read>(
     from: &mut Source<R>,
     into: &mut impl Sinker,

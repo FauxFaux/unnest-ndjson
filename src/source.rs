@@ -3,6 +3,7 @@ use std::io::Read;
 
 use iowrap::ReadMany as _;
 
+/// A more aggressive BufReader with some utility methods.
 pub struct Source<R: Read> {
     inner: R,
     buf: [u8; 16 * 1024],
@@ -20,6 +21,11 @@ impl<R: Read> Source<R> {
         }
     }
 
+    /// Attempt to read as much as possible into the buffer.
+    ///
+    /// If the buffer contains fully read data, discard it and fill the entire buffer again.
+    ///
+    /// Unlike BufReader, this will not give up the first time `read()` returns.
     pub fn fill(&mut self) -> io::Result<()> {
         if self.pos == self.len {
             self.pos = 0;
@@ -34,19 +40,28 @@ impl<R: Read> Source<R> {
         Ok(())
     }
 
+    /// Access the valid portion of the buffer
+    #[inline]
     pub fn buf(&self) -> &[u8] {
         &self.buf[self.pos..self.len]
     }
 
+    /// Mark some amount of the `buf()` as consumed.
+    #[inline]
     pub fn consume(&mut self, amt: usize) {
         self.pos += amt;
     }
 
+    /// Consume the entire buffer.
+    ///
+    /// This is more efficient than consume (although probably irrelevant in practice!).
+    #[inline]
     pub fn all_useless(&mut self) {
         self.pos = 0;
         self.len = 0;
     }
 
+    #[inline]
     pub fn next(&mut self) -> io::Result<u8> {
         loop {
             if self.pos < self.len {
@@ -58,6 +73,7 @@ impl<R: Read> Source<R> {
         }
     }
 
+    #[inline]
     pub fn peek(&mut self) -> io::Result<u8> {
         loop {
             if self.pos < self.len {

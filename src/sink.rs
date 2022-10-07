@@ -1,6 +1,7 @@
 use crate::HeaderStyle;
 use std::io::{self, Write};
 
+/// A simplification of the `Write` trait.
 pub trait MiniWrite {
     fn write_all(&mut self, buf: &[u8]) -> io::Result<()>;
 }
@@ -13,7 +14,7 @@ impl<T: Write> MiniWrite for T {
 
 /// Consume the individual JSON documents.
 ///
-/// For each document the following will be called:
+/// For each document the following will be called, in this order:
 ///  * `observe_new_item`, with the path if it was computed
 ///  * `write_all` will be called repeatedly with the contents of the item
 ///  * `observe_end`, when the item is finished
