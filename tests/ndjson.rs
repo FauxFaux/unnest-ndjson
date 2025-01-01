@@ -1,10 +1,10 @@
-use std::io;
-
 use serde_json::from_slice;
 use serde_json::json;
 use serde_json::to_vec_pretty;
 use serde_json::Value;
-use unnest_ndjson::{unnest_to_ndjson, HeaderStyle};
+use std::io;
+use std::io::Cursor;
+use unnest_ndjson::{unnest_to_ndjson, HeaderStyle, MiniWrite, Sinker};
 
 fn test_with(orig: &Value, expected: &[Value], target: usize, header_style: HeaderStyle) {
     let input = io::Cursor::new(to_vec_pretty(&orig).expect("serialisation of reference value"));
@@ -114,6 +114,40 @@ fn unicodes() {
         1,
         HeaderStyle::PathArray,
     );
+}
+
+#[derive(Default)]
+struct Capture {
+    caught: Vec<String>,
+    current: Vec<u8>,
+}
+
+impl MiniWrite for &mut Capture {
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.current.write_all(buf)
+    }
+}
+
+impl Sinker for &mut Capture {
+    fn observe_end(&mut self, _: HeaderStyle) -> io::Result<()> {
+        self.caught
+            .push(String::from_utf8(self.current.clone()).expect("valid utf8"));
+        self.current.clear();
+        Ok(())
+    }
+}
+
+#[test]
+fn unicodes_str() {
+    let mut capture = Capture::default();
+    unnest_to_ndjson(
+        &br#"{"five": "r\u00ebr"}"#[..],
+        &mut capture,
+        1,
+        HeaderStyle::None,
+    )
+    .expect("unnest");
+    assert_eq!(capture.caught, vec!["\"r\\u00ebr\""]);
 }
 
 #[test]

@@ -303,11 +303,13 @@ fn parse_string<R: Read, W: sink::MiniWrite>(from: &mut Source<R>, into: &mut W)
                         into.write_all(&[b'\\', e])?;
                     }
                     b'u' => {
+                        into.write_all(&[b'\\', b'u'])?;
                         for _ in 0..4 {
                             let h: u8 = from.next()?;
                             if !h.is_ascii_hexdigit() {
                                 return Err(io::ErrorKind::InvalidData.into());
                             }
+                            into.write_all(&[h])?
                         }
                     }
                     _ => return Err(io::ErrorKind::InvalidData.into()),
