@@ -16,7 +16,7 @@ iowrap = "0.2"
 memchr = "2"
 
 [dev-dependencies]
-itertools = "0.10"
+itertools = "0.14"
 maplit = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 
