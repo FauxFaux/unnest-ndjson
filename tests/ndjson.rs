@@ -101,6 +101,22 @@ fn single_level_object() {
 }
 
 #[test]
+fn unicodes() {
+    test_with(
+        &json!({
+            "bàh": 5,
+            "five": "résumé",
+        }),
+        &[
+            json!({"key": ["bàh"], "value": 5, }),
+            json!({"key": ["five"], "value": "résumé", }),
+        ],
+        1,
+        HeaderStyle::PathArray,
+    );
+}
+
+#[test]
 fn double_level_object() {
     test_with(
         &json!({
