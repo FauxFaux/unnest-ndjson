@@ -1,6 +1,6 @@
 [package]
 name = "unnest-ndjson"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 
 description = "Convert large JSON documents to ndjson/jsonlines"
