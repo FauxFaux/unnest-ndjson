@@ -1,6 +1,6 @@
 ## unnest-ndjson
 
-![Crates.io Version](https://img.shields.io/crates/v/unnest-ndjson)
+[![Crates.io Version](https://img.shields.io/crates/v/unnest-ndjson)](https://crates.io/crates/unnest-ndjson)
 
 This tool can unpack JSON objects into `ndjson`, also called [jsonlines](https://jsonlines.org/).
 
